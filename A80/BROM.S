@@ -5,16 +5,20 @@ BROM.bin:     filformat binary
 Disassembly of section .data:
 
 00000000 <.data>:
-       0:	ea000008 	b	0x28
-       4:	ea000006 	b	0x24
-       8:	ea000005 	b	0x24
-       c:	ea000004 	b	0x24
-      10:	ea000003 	b	0x24
-      14:	ea000002 	b	0x24
-      18:	ea000011 	b	0x64
-      1c:	ea000000 	b	0x24
-      20:	ea000013 	b	0x74
-      24:	eafffffe 	b	0x24
+       0:	ea000008 	b	reset		; reset
+       4:	ea000006 	b	unimplemented	; _undefined_instruction
+       8:	ea000005 	b	unimplemented	; _software_interrupt
+       c:	ea000004 	b	unimplemented	; _prefetch_abort
+      10:	ea000003 	b	unimplemented	; _data_abort
+      14:	ea000002 	b	unimplemented	; _not_used
+      18:	ea000011 	b	irq		; _irq
+      1c:	ea000000 	b	unimplemented	; _fiq
+      20:	ea000013 	b	fel_setup	; FEL
+
+      unimplemented:
+      24:	eafffffe 	b	unimplemented
+
+      reset:
       28:	e3a00000 	mov	r0, #0
       2c:	e3a01000 	mov	r1, #0
       30:	e3a02000 	mov	r2, #0
@@ -29,11 +33,15 @@ Disassembly of section .data:
       54:	e3a0b000 	mov	fp, #0
       58:	e3a0c000 	mov	ip, #0
       5c:	e3a0d000 	mov	sp, #0
-      60:	e59ff0b4 	ldr	pc, [pc, #180]	; 0x11c
+      60:	e59ff0b4 	ldr	pc, =BROM
+
+      irq:
       64:	e24ee004 	sub	lr, lr, #4
       68:	e92d5fff 	push	{r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, sl, fp, ip, lr}
       6c:	eb0008f7 	bl	0x2450
       70:	e8fd9fff 	ldm	sp!, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, sl, fp, ip, pc}^
+
+      fel_setup:
       74:	e3a020d2 	mov	r2, #210	; 0xd2
       78:	e121f002 	msr	CPSR_c, r2
       7c:	e59fd09c 	ldr	sp, [pc, #156]	; 0x120
@@ -2979,8 +2987,8 @@ Disassembly of section .data:
     2e54:	e8bd4001 	pop	{r0, lr}
     2e58:	e1a0f00e 	mov	pc, lr
 
-
-    3000:	ea000007 	b	0x3024
+BROM:
+    3000:	ea000007 	b	start
     3004:	ea000007 	b	0x3028
     3008:	"eGON.BRM"
     3010:	00000024
@@ -2989,101 +2997,128 @@ Disassembly of section .data:
     301c:	"1633"
     3020:	00000000
 
+start:
     3024:	ea000000 	b	0x302c
 
     3028:	ea000001 	b	0x3034
 
+start2:
     302c:	e3a06000 	mov	r6, #0
     3030:	ea000003 	b	0x3044
-    3034:	e3a0605c 	mov	r6, #92	; 0x5c
+    3034:	e3a0605c 	mov	r6, #0x5c
     3038:	ea000012 	b	0x3088
-    303c:	e59f0150 	ldr	r0, [pc, #336]	; 0x3194
+
+#define PRCM_CPU_SOFT_ENTRY_REG 0x08001564
+
+secondary_entry:
+    303c:	e59f0150 	ldr	r0, =PRCM_CPU_SOFT_ENTRY_REG
     3040:	e590f000 	ldr	pc, [r0]
-    3044:	ee100fb0 	mrc	15, 0, r0, cr0, cr0, {5}
-    3048:	e2001003 	and	r1, r0, #3
-    304c:	e3510000 	cmp	r1, #0
-    3050:	1afffff9 	bne	0x303c
-    3054:	e2001cff 	and	r1, r0, #65280	; 0xff00
-    3058:	e3510000 	cmp	r1, #0
-    305c:	1afffff6 	bne	0x303c
-    3060:	e3a01a21 	mov	r1, #135168	; 0x21000
-    3064:	e59f212c 	ldr	r2, [pc, #300]	; 0x3198
-    3068:	e5913000 	ldr	r3, [r1]
+
+    3044:	ee100fb0 	mrc	15, 0, r0, cr0, cr0, {5}	; read MPIDR
+    3048:	e2001003 	and	r1, r0, #3	; get cpu id
+    304c:	e3510000 	cmp	r1, #0		; check for cpu0
+    3050:	1afffff9 	bne	secondary_entry
+    3054:	e2001cff 	and	r1, r0, #0xff00	; get cluster id
+    3058:	e3510000 	cmp	r1, #0		; check for cluster0
+    305c:	1afffff6 	bne	secondary_entry
+
+#define CPU0_HOTPLUG_ADD1	0x21000
+#define CPU0_HOTPLUG_ADD2	0x21004
+#define CPU0_HOTPLUG_MAGIC1	0xfa50392f
+#define CPU0_HOTPLUG_MAGIC2	0x790dca3a
+
+    3060:	e3a01a21 	mov	r1, #CPU0_HOTPLUG_ADD1
+    3064:	e59f212c 	ldr	r2, =CPU0_HOTPLUG_MAGIC1
+    3068:	e5913000 	ldr	r3, [r1]	; load hotplug address 1 (sram b)
     306c:	e1520003 	cmp	r2, r3
-    3070:	1a000004 	bne	0x3088
-    3074:	e59f1120 	ldr	r1, [pc, #288]	; 0x319c
-    3078:	e59f2120 	ldr	r2, [pc, #288]	; 0x31a0
+    3070:	1a000004 	bne	normal_boot
+    3074:	e59f1120 	ldr	r1, =CPU0_HOTPLUG_ADD2
+    3078:	e59f2120 	ldr	r2, =CPU0_HOTPLUG_MAGIC2
     307c:	e5913000 	ldr	r3, [r1]
     3080:	e1520003 	cmp	r2, r3
-    3084:	0affffec 	beq	0x303c
-    3088:	e30004e2 	movw	r0, #1250	; 0x4e2
-    308c:	e2500001 	subs	r0, r0, #1
-    3090:	1afffffd 	bne	0x308c
-    3094:	e10f0000 	mrs	r0, CPSR
-    3098:	e3c0001f 	bic	r0, r0, #31
-    309c:	e3800013 	orr	r0, r0, #19
-    30a0:	e38000c0 	orr	r0, r0, #192	; 0xc0
-    30a4:	e3c00c02 	bic	r0, r0, #512	; 0x200
-    30a8:	e121f000 	msr	CPSR_c, r0
-    30ac:	ee110f10 	mrc	15, 0, r0, cr1, cr0, {0}
-    30b0:	e3c00005 	bic	r0, r0, #5
-    30b4:	e3c00b06 	bic	r0, r0, #6144	; 0x1800
-    30b8:	ee010f10 	mcr	15, 0, r0, cr1, cr0, {0}
-    30bc:	e59f10e0 	ldr	r1, [pc, #224]	; 0x31a4
-    30c0:	e5912000 	ldr	r2, [r1]
-    30c4:	e3c22001 	bic	r2, r2, #1
-    30c8:	e5812000 	str	r2, [r1]
-    30cc:	e3a01406 	mov	r1, #100663296	; 0x6000000
+    3084:	0affffec 	beq	secondary_entry
+
+normal_boot:
+    3088:	e30004e2 	movw	r0, #1250	; r0 = 1250;
+    308c:	e2500001 	subs	r0, r0, #1	; r0 = r0 - 1
+    3090:	1afffffd 	bne	0x308c		; loop until r0 reaches 0
+
+    3094:	e10f0000 	mrs	r0, CPSR	; read current program status register
+    3098:	e3c0001f 	bic	r0, r0, #0x1f	; load System (ARMv4+) R0-R14, CPSR, PC as MASK
+    309c:	e3800013 	orr	r0, r0, #0x13	; set SVC mode (supervisor) R0-R12, R13_svc R14_svc CPSR, SPSR_IRQ, PC
+    30a0:	e38000c0 	orr	r0, r0, #0xc0	; enable FIQ and IRQ interrupts
+    30a4:	e3c00c02 	bic	r0, r0, #0x200	; set little endianess
+    30a8:	e121f000 	msr	CPSR_c, r0	; write current program status register flag bits
+
+    30ac:	ee110f10 	mrc	15, 0, r0, cr1, cr0, {0}	; read from CoProcessor
+    30b0:	e3c00005 	bic	r0, r0, #0x5	; MMU disabled, data caching disabled
+    30b4:	e3c00b06 	bic	r0, r0, #0x1800	; program flow prediction disabled, instruction caching disabled
+    30b8:	ee010f10 	mcr	15, 0, r0, cr1, cr0, {0}	; write to CoProcessor
+
+    30bc:	e59f10e0 	ldr	r1, =0x06000cb8	; load WDT_MODE (watchdog timer) address
+    30c0:	e5912000 	ldr	r2, [r1]	; load WDT_MODE value
+    30c4:	e3c22001 	bic	r2, r2, #0x1	; disable watchdog reset
+    30c8:	e5812000 	str	r2, [r1]	; store WDT_MODE register
+
+    ; basic clock setup
+    30cc:	e3a01406 	mov	r1, 0x6000000	; load CCU base address
     30d0:	e3a02000 	mov	r2, #0
-    30d4:	e5913050 	ldr	r3, [r1, #80]	; 0x50
-    30d8:	e3c33001 	bic	r3, r3, #1
-    30dc:	e1834002 	orr	r4, r3, r2
-    30e0:	e5814050 	str	r4, [r1, #80]	; 0x50
+    30d4:	e5913050 	ldr	r3, [r1, #0x50]	; load CCU_CPU_CLK_CFG_REG
+    30d8:	e3c33001 	bic	r3, r3, #0x1
+    30dc:	e1834002 	orr	r4, r3, r2	; C0_CPUX_CLK_SRC = OSC24M
+    30e0:	e5814050 	str	r4, [r1, #0x50]	; store CCU_CPU_CLK_CFG_REG
     30e4:	e3a02000 	mov	r2, #0
-    30e8:	e5913054 	ldr	r3, [r1, #84]	; 0x54
-    30ec:	e3c33007 	bic	r3, r3, #7
-    30f0:	e1834002 	orr	r4, r3, r2
-    30f4:	e5814054 	str	r4, [r1, #84]	; 0x54
+    30e8:	e5913054 	ldr	r3, [r1, #0x54]	; load C0_CLK_CFG_REG
+    30ec:	e3c33007 	bic	r3, r3, #0x7
+    30f0:	e1834002 	orr	r4, r3, r2	; AXI0_CLK_DIV = 0x0
+    30f4:	e5814054 	str	r4, [r1, #0x54]	; store C0_CLK_CFG_REG
     30f8:	e3a02000 	mov	r2, #0
-    30fc:	e591305c 	ldr	r3, [r1, #92]	; 0x5c
-    3100:	e3c33003 	bic	r3, r3, #3
-    3104:	e3c33403 	bic	r3, r3, #50331648	; 0x3000000
+    30fc:	e591305c 	ldr	r3, [r1, #0x5c]	; load GTBUS_CLK_CFG_REG
+    3100:	e3c33003 	bic	r3, r3, #0x3	; GTBUS_CLK_DIV = 1
+    3104:	e3c33403 	bic	r3, r3, #0x3000000	; GTBUS_CLK_SRC = OSC24M
     3108:	e1834002 	orr	r4, r3, r2
-    310c:	e581405c 	str	r4, [r1, #92]	; 0x5c
+    310c:	e581405c 	str	r4, [r1, #0x5c]	; store GTBUS_CLK_CFG_REG
     3110:	e3a02000 	mov	r2, #0
-    3114:	e5913060 	ldr	r3, [r1, #96]	; 0x60
-    3118:	e3c33003 	bic	r3, r3, #3
-    311c:	e3c33403 	bic	r3, r3, #50331648	; 0x3000000
+    3114:	e5913060 	ldr	r3, [r1, #0x60]	; load AHB0_CLK_CFG_REG
+    3118:	e3c33003 	bic	r3, r3, #3	; AHB0_CLK_DIV = 1
+    311c:	e3c33403 	bic	r3, r3, #0x3000000	; AHB0_CLK_SRC = GTBUS_CLK
     3120:	e1834002 	orr	r4, r3, r2
-    3124:	e5814060 	str	r4, [r1, #96]	; 0x60
-    3128:	e59f1078 	ldr	r1, [pc, #120]	; 0x31a8
-    312c:	e59121a4 	ldr	r2, [r1, #420]	; 0x1a4
+    3124:	e5814060 	str	r4, [r1, #0x60]	; store AHB0_CLK_CFG_REG
+    3128:	e59f1078 	ldr	r1, =0x06000400	; CCU_SCLK base
+    312c:	e59121a4 	ldr	r2, [r1, #0x1a4]	; load BUS_SOFT_RST_REG1
     3130:	e3a03000 	mov	r3, #0
-    3134:	e1822003 	orr	r2, r2, r3
-    3138:	e58121a4 	str	r2, [r1, #420]	; 0x1a4
-    313c:	e5912184 	ldr	r2, [r1, #388]	; 0x184
+    3134:	e1822003 	orr	r2, r2, r3	; assert reset for everything
+    3138:	e58121a4 	str	r2, [r1, #0x1a4]	; store AHB0_CLK_CFG_REG
+    313c:	e5912184 	ldr	r2, [r1, #0x184]	; load BUS_CLK_GATING_REG1
     3140:	e3a03000 	mov	r3, #0
-    3144:	e1822003 	orr	r2, r2, r3
-    3148:	e5812184 	str	r2, [r1, #388]	; 0x184
-    314c:	e5912190 	ldr	r2, [r1, #400]	; 0x190
-    3150:	e3a03020 	mov	r3, #32
-    3154:	e1822003 	orr	r2, r2, r3
-    3158:	e5812190 	str	r2, [r1, #400]	; 0x190
-    315c:	e59fd048 	ldr	sp, [pc, #72]	; 0x31ac
-    3160:	e59f3048 	ldr	r3, [pc, #72]	; 0x31b0
+    3144:	e1822003 	orr	r2, r2, r3	; gate clocks to everything
+    3148:	e5812184 	str	r2, [r1, #0x184]	; store BUS_CLK_GATING_REG1
+    314c:	e5912190 	ldr	r2, [r1, #0x190]	; load BUS_CLK_GATING_REG3
+    3150:	e3a03020 	mov	r3, #0x20
+    3154:	e1822003 	orr	r2, r2, r3	; ungate GPIO bus clock
+    3158:	e5812190 	str	r2, [r1, #0x190]	; store BUS_CLK_GATING_REG3
+    315c:	e59fd048 	ldr	sp, =0x00019ffc	; setup stack pointer
+
+#define PRCM_SP_STB_FLAG_REG	0x08001560
+#define PRCM_SP_STB_FLAG	0xefe8
+
+    ; check for super standby
+    3160:	e59f3048 	ldr	r3, =PRCM_SP_STB_FLAG_REG
     3164:	e5932000 	ldr	r2, [r3]
-    3168:	e30f1fff 	movw	r1, #65535	; 0xffff
+    3168:	e30f1fff 	movw	r1, #0xffff
     316c:	e0010002 	and	r0, r1, r2
-    3170:	e30e1fe8 	movw	r1, #61416	; 0xefe8
+    3170:	e30e1fe8 	movw	r1, #PRCM_SP_STB_FLAG
     3174:	e1500001 	cmp	r0, r1
-    3178:	0a000088 	beq	0x33a0
-    317c:	e59fd028 	ldr	sp, [pc, #40]	; 0x31ac
+    3178:	0a000088 	beq	super_standby_entry
+
+    317c:	e59fd028 	ldr	sp, =0x00019ffc ; setup stack pointer
     3180:	e356005c 	cmp	r6, #92	; 0x5c
     3184:	0a000016 	beq	0x31e4
-    3188:	e3a0006f 	mov	r0, #111	; 0x6f
+    3188:	e3a0006f 	mov	r0, #6f	; 0x6f
     318c:	eb000021 	bl	0x3218
     3190:	eafffffe 	b	0x3190
 
+    ; literal pool
     3194:	08001564
     3198:	fa50392f
     319c:	00021004
@@ -3099,12 +3134,16 @@ Disassembly of section .data:
     31c0:	e0831400 	add	r1, r3, r0, lsl #8
     31c4:	e5912000 	ldr	r2, [r1]
     31c8:	e12fff1e 	bx	lr
+
+f_31cc:
     31cc:	e92d4070 	push	{r4, r5, r6, lr}
     31d0:	e1a04000 	mov	r4, r0
     31d4:	e1a05001 	mov	r5, r1
     31d8:	e1a00004 	mov	r0, r4
     31dc:	eb0011a5 	bl	0x7878
     31e0:	e8bd8070 	pop	{r4, r5, r6, pc}
+
+f_31e4:
     31e4:	e92d4010 	push	{r4, lr}
     31e8:	e3a04000 	mov	r4, #0
     31ec:	e3a00000 	mov	r0, #0
@@ -3112,12 +3151,14 @@ Disassembly of section .data:
     31f4:	e1a04000 	mov	r4, r0
     31f8:	e3540000 	cmp	r4, #0
     31fc:	1a000002 	bne	0x320c
-    3200:	e3a010fc 	mov	r1, #252	; 0xfc
-    3204:	e3a00801 	mov	r0, #65536	; 0x10000
-    3208:	ebffffef 	bl	0x31cc
-    320c:	e3a00020 	mov	r0, #32
-    3210:	eb001198 	bl	0x7878
+    3200:	e3a010fc 	mov	r1, #0xfc
+    3204:	e3a00801 	mov	r0, #0x10000
+    3208:	ebffffef 	bl	0x31cc	; jump to SRAM A1 (0x10000)
+    320c:	e3a00020 	mov	r0, #0x20
+    3210:	eb001198 	bl	0x7878	; jump to r0 (0x20 FEL)
     3214:	e8bd8010 	pop	{r4, pc}
+
+f_3218:
     3218:	e92d4070 	push	{r4, r5, r6, lr}
     321c:	e1a05000 	mov	r5, r0
     3220:	e3a06000 	mov	r6, #0
@@ -3216,19 +3257,22 @@ Disassembly of section .data:
     3394:	e3a00801 	mov	r0, #65536	; 0x10000
     3398:	ebffff8b 	bl	0x31cc
     339c:	e8bd8070 	pop	{r4, r5, r6, pc}
+
+#define PRCM_SP_STB_SOFT_ENTRY_REG	0x08001568
+    super_standby_entry:
     33a0:	e92d4070 	push	{r4, r5, r6, lr}
-    33a4:	e59f405c 	ldr	r4, [pc, #92]	; 0x3408
+    33a4:	e59f405c 	ldr	r4, =0x3408
     33a8:	e3a06000 	mov	r6, #0
     33ac:	e3a05000 	mov	r5, #0
-    33b0:	e5946000 	ldr	r6, [r4]
-    33b4:	e5965010 	ldr	r5, [r6, #16]
-    33b8:	e28f104c 	add	r1, pc, #76	; 0x340c
-    33bc:	e5940000 	ldr	r0, [r4]
-    33c0:	eb00106e 	bl	0x7580
+    33b0:	e5946000 	ldr	r6, [r4]	; r6 = PRCM_SP_STB_SOFT_ENTRY_REG
+    33b4:	e5965010 	ldr	r5, [r6, #16]	; r5 = address to length of boot0
+    33b8:	e28f104c 	add	r1, pc, #76	; r1 = 0x340c
+    33bc:	e5940000 	ldr	r0, [r4]	; r0 = PRCM_SP_STB_SOFT_ENTRY_REG
+    33c0:	eb00106e 	bl	0x7580		; memcmp(r0, r1, 8)?
     33c4:	e3500000 	cmp	r0, #0
     33c8:	1a00000b 	bne	0x33fc
     33cc:	e1a00005 	mov	r0, r5
-    33d0:	e7df051f 	bfc	r0, #10, #22
+    33d0:	e7df051f 	bfc	r0, #10, #22	; clear upper 22 bits of r0
     33d4:	e3500000 	cmp	r0, #0
     33d8:	1a000007 	bne	0x33fc
     33dc:	e1a01005 	mov	r1, r5
@@ -3238,88 +3282,91 @@ Disassembly of section .data:
     33ec:	1a000002 	bne	0x33fc
     33f0:	e3a010fc 	mov	r1, #252	; 0xfc
     33f4:	e5940000 	ldr	r0, [r4]
-    33f8:	ebffff73 	bl	0x31cc
+    33f8:	ebffff73 	bl	0x31cc		; jump to SRAM A1 (0x10000)
     33fc:	e3a00000 	mov	r0, #0
     3400:	ebffff84 	bl	0x3218
     3404:	e8bd8070 	pop	{r4, r5, r6, pc}
 
+    ; literal pool
     3408:	08001568
     340c:	"eGON.BT0"
-    3410:	3054422e
     3414:	00000000
 
-    3418:	e59f0580 	ldr	r0, [pc, #1408]	; 0x39a0
-    341c:	e59f1580 	ldr	r1, [pc, #1408]	; 0x39a4
-    3420:	e5810000 	str	r0, [r1]
-    3424:	e1811bc0 	orr	r1, r1, r0, asr #23
-    3428:	e5810000 	str	r0, [r1]
-    342c:	e3070222 	movw	r0, #29218	; 0x7222
-    3430:	e0211540 	eor	r1, r1, r0, asr #10
-    3434:	e5810000 	str	r0, [r1]
-    3438:	e59f0568 	ldr	r0, [pc, #1384]	; 0x39a8
-    343c:	e28110f8 	add	r1, r1, #248	; 0xf8
+    ; PIO PC pingroud NAND setup
+    nand_pin_setup:
+    3418:	e59f0580 	ldr	r0, =0x22222222
+    341c:	e59f1580 	ldr	r1, =0x06000848
+    3420:	e5810000 	str	r0, [r1]	; PIO_PC_CFG0 = 0x22222222 (PC NAND)
+    3424:	e1811bc0 	orr	r1, r1, r0, asr #23	; r1 = 0x0600084C
+    3428:	e5810000 	str	r0, [r1]	; PIO_PC_CFG1 = 0x22222222 (PC NAND)
+    342c:	e3070222 	movw	r0, #0x7222
+    3430:	e0211540 	eor	r1, r1, r0, asr #10	; r1 = 0x06000850
+    3434:	e5810000 	str	r0, [r1]	; PIO_PC_CFG2 = 0x7222 (PC NAND)
+    3438:	e59f0568 	ldr	r0, =0x44444444
+    343c:	e28110f8 	add	r1, r1, #0xf8	; r1 = 0x06000948
     3440:	e5810000 	str	r0, [r1]
-    3444:	e1800140 	orr	r0, r0, r0, asr #2
-    3448:	e24110ec 	sub	r1, r1, #236	; 0xec
-    344c:	e5810000 	str	r0, [r1]
-    3450:	e3a00055 	mov	r0, #85	; 0x55
-    3454:	e2811004 	add	r1, r1, #4
-    3458:	e5810000 	str	r0, [r1]
-    345c:	e59f0548 	ldr	r0, [pc, #1352]	; 0x39ac
-    3460:	e28110f8 	add	r1, r1, #248	; 0xf8
+    3444:	e1800140 	orr	r0, r0, r0, asr #2	; r0 = 0x11111111
+    3448:	e24110ec 	sub	r1, r1, #0xec	; r1 = 0x0600085C
+    344c:	e5810000 	str	r0, [r1]	; PC pin drive = 0x1 (20 mA)
+    3450:	e3a00055 	mov	r0, #0x55
+    3454:	e2811004 	add	r1, r1, #4	; r1 = 0x06000860
+    3458:	e5810000 	str	r0, [r1]	; PC 16~19 drive = 0x1 (20 mA)
+    345c:	e59f0548 	ldr	r0, =0x55555555
+    3460:	e28110f8 	add	r1, r1, #0xf8	; r1 = 0x06000958
     3464:	e5810000 	str	r0, [r1]
     3468:	e3050140 	movw	r0, #20800	; 0x5140
-    346c:	e24110f4 	sub	r1, r1, #244	; 0xf4
-    3470:	e5810000 	str	r0, [r1]
+    346c:	e24110f4 	sub	r1, r1, #0xf4	; r1 = 0x06000864
+    3470:	e5810000 	str	r0, [r1]	; PC 0~15 pull default
     3474:	e3a00014 	mov	r0, #20
-    3478:	e2811004 	add	r1, r1, #4
-    347c:	e5810000 	str	r0, [r1]
+    3478:	e2811004 	add	r1, r1, #4	; r1 = 0x06000868
+    347c:	e5810000 	str	r0, [r1]	; PC 16~19 pull default
     3480:	e12fff1e 	bx	lr
+
     3484:	e92d4070 	push	{r4, r5, r6, lr}
-    3488:	ebffffe2 	bl	0x3418
-    348c:	e59f051c 	ldr	r0, [pc, #1308]	; 0x39b0
-    3490:	e5900000 	ldr	r0, [r0]
-    3494:	e3c00a02 	bic	r0, r0, #8192	; 0x2000
-    3498:	e59f1510 	ldr	r1, [pc, #1296]	; 0x39b0
-    349c:	e5810000 	str	r0, [r1]
-    34a0:	e2410020 	sub	r0, r1, #32
-    34a4:	e5900000 	ldr	r0, [r0]
-    34a8:	e3c00a02 	bic	r0, r0, #8192	; 0x2000
-    34ac:	e2411020 	sub	r1, r1, #32
-    34b0:	e5810000 	str	r0, [r1]
-    34b4:	e2410d06 	sub	r0, r1, #384	; 0x180
-    34b8:	e5900000 	ldr	r0, [r0]
-    34bc:	e3c00102 	bic	r0, r0, #-2147483648	; 0x80000000
-    34c0:	e2411d06 	sub	r1, r1, #384	; 0x180
-    34c4:	e5810000 	str	r0, [r1]
-    34c8:	e59f54e4 	ldr	r5, [pc, #1252]	; 0x39b4
+    3488:	ebffffe2 	bl	nand_pin_setup
+    348c:	e59f051c 	ldr	r0, =0x060005a0
+    3490:	e5900000 	ldr	r0, [r0]	; load BUS_SOFT_RST_REG0
+    3494:	e3c00a02 	bic	r0, r0, #0x2000	; assert NAND controller reset
+    3498:	e59f1510 	ldr	r1, =0x060005a0
+    349c:	e5810000 	str	r0, [r1]	; store BUS_SOFT_RST_REG0
+    34a0:	e2410020 	sub	r0, r1, #0x20	; r0 = 0x06000580
+    34a4:	e5900000 	ldr	r0, [r0]	; load BUS_CLK_GATING_REG0
+    34a8:	e3c00a02 	bic	r0, r0, #0x2000 ; disable NAND controller 0 bus clock
+    34ac:	e2411020 	sub	r1, r1, #0x20
+    34b0:	e5810000 	str	r0, [r1]	; store BUS_CLK_GATING_REG0
+    34b4:	e2410d06 	sub	r0, r1, #0x180	; r0 = 0x06000400
+    34b8:	e5900000 	ldr	r0, [r0]	; load NAND0_CLK_REG0
+    34bc:	e3c00102 	bic	r0, r0, #0x80000000	; disable nand0_clk
+    34c0:	e2411d06 	sub	r1, r1, #0x180	; r1 = 0x06000400
+    34c4:	e5810000 	str	r0, [r1]	; store NAND0_CLK_REG0
+    34c8:	e59f54e4 	ldr	r5, =0x0303000f
     34cc:	e1a00001 	mov	r0, r1
-    34d0:	e5900000 	ldr	r0, [r0]
-    34d4:	e1c04005 	bic	r4, r0, r5
-    34d8:	e3844001 	orr	r4, r4, #1
+    34d0:	e5900000 	ldr	r0, [r0]	; load NAND0_CLK_REG0
+    34d4:	e1c04005 	bic	r4, r0, r5	; CLK_SRC = OSC24M, CLK_DIV_N = 1
+    34d8:	e3844001 	orr	r4, r4, #1	; CLK_DIV_M = 2
     34dc:	e1a00001 	mov	r0, r1
-    34e0:	e5804000 	str	r4, [r0]
-    34e4:	e5900000 	ldr	r0, [r0]
-    34e8:	e3800102 	orr	r0, r0, #-2147483648	; 0x80000000
-    34ec:	e5810000 	str	r0, [r1]
-    34f0:	e2810004 	add	r0, r1, #4
-    34f4:	e5804000 	str	r4, [r0]
-    34f8:	e5900000 	ldr	r0, [r0]
-    34fc:	e3800102 	orr	r0, r0, #-2147483648	; 0x80000000
-    3500:	e2811004 	add	r1, r1, #4
-    3504:	e5810000 	str	r0, [r1]
-    3508:	e2810f5f 	add	r0, r1, #380	; 0x17c
-    350c:	e5900000 	ldr	r0, [r0]
-    3510:	e3800a02 	orr	r0, r0, #8192	; 0x2000
-    3514:	e2811f5f 	add	r1, r1, #380	; 0x17c
-    3518:	e5810000 	str	r0, [r1]
-    351c:	e2810020 	add	r0, r1, #32
-    3520:	e5900000 	ldr	r0, [r0]
-    3524:	e3800a02 	orr	r0, r0, #8192	; 0x2000
-    3528:	e2811020 	add	r1, r1, #32
-    352c:	e5810000 	str	r0, [r1]
+    34e0:	e5804000 	str	r4, [r0]	; store NAND0_CLK_REG0
+    34e4:	e5900000 	ldr	r0, [r0]	; load NAND0_CLK_REG0
+    34e8:	e3800102 	orr	r0, r0, #0x80000000	; enable nand_clk0
+    34ec:	e5810000 	str	r0, [r1]	; store NAND0_CLK_REG0
+    34f0:	e2810004 	add	r0, r1, #0x4	; r0 = 0x06000404
+    34f4:	e5804000 	str	r4, [r0]	; nand_clk1 CLK_SRC = OSC24M, CLK_DIV_N = 1, CLK_DIV_M = 2
+    34f8:	e5900000 	ldr	r0, [r0]	; load NAND0_CLK_REG1
+    34fc:	e3800102 	orr	r0, r0, #0x80000000 ; enable nand_clk1
+    3500:	e2811004 	add	r1, r1, #4	; r1 = 0x06000404
+    3504:	e5810000 	str	r0, [r1]	; store NAND0_CLK_REG1
+    3508:	e2810f5f 	add	r0, r1, #0x17c	; r0 = 0x06000580
+    350c:	e5900000 	ldr	r0, [r0]	; load BUS_CLK_GATING_REG0
+    3510:	e3800a02 	orr	r0, r0, #0x2000	; enable NAND controller 0 bus clock
+    3514:	e2811f5f 	add	r1, r1, #0x17c	; r1 = 0x06000580
+    3518:	e5810000 	str	r0, [r1]	; store BUS_CLK_GATING_REG0
+    351c:	e2810020 	add	r0, r1, #0x20	; r0 = 0x060005a0
+    3520:	e5900000 	ldr	r0, [r0]	; load BUS_SOFT_RST_REG0
+    3524:	e3800a02 	orr	r0, r0, #0x2000 ; deassert NAND controller reset
+    3528:	e2811020 	add	r1, r1, #0x20	; r1 = 0x060005a0
+    352c:	e5810000 	str	r0, [r1]	; store BUS_SOFT_RST_REG0
     3530:	e3a00001 	mov	r0, #1
-    3534:	e59f147c 	ldr	r1, [pc, #1148]	; 0x39b8
+    3534:	e59f147c 	ldr	r1, =0x01c03000 ; NAND controller
     3538:	e5810000 	str	r0, [r1]
     353c:	e3a00000 	mov	r0, #0
     3540:	ea000005 	b	0x355c
@@ -3481,6 +3528,7 @@ Disassembly of section .data:
     37b0:	e59f6200 	ldr	r6, [pc, #512]	; 0x39b8
     37b4:	e5865034 	str	r5, [r6, #52]	; 0x34
     37b8:	e8bd8070 	pop	{r4, r5, r6, pc}
+
     37bc:	e92d47f0 	push	{r4, r5, r6, r7, r8, r9, sl, lr}
     37c0:	e1a04000 	mov	r4, r0
     37c4:	ebffff2e 	bl	0x3484
@@ -3603,6 +3651,7 @@ Disassembly of section .data:
     3998:	e320f000 	nop	{0}
     399c:	e12fff1e 	bx	lr
 
+    ; literal pool
     39a0:	22222222
     39a4:	06000848
     39a8:	44444444
@@ -3964,6 +4013,7 @@ Disassembly of section .data:
     3f34:	ebffff6b 	bl	0x3ce8
     3f38:	e3a00000 	mov	r0, #0
     3f3c:	eaffffd6 	b	0x3e9c
+
     3f40:	e92d4010 	push	{r4, lr}
     3f44:	e59f09e4 	ldr	r0, [pc, #2532]	; 0x4930
     3f48:	e59f19cc 	ldr	r1, [pc, #2508]	; 0x491c
@@ -5019,6 +5069,7 @@ Disassembly of section .data:
     4f94:	e1a00007 	mov	r0, r7
     4f98:	e28dd064 	add	sp, sp, #100	; 0x64
     4f9c:	e8bd80f0 	pop	{r4, r5, r6, r7, pc}
+
     4fa0:	e92d40f0 	push	{r4, r5, r6, r7, lr}
     4fa4:	e24dd064 	sub	sp, sp, #100	; 0x64
     4fa8:	e1a06000 	mov	r6, r0
@@ -5038,17 +5089,17 @@ Disassembly of section .data:
     4fe0:	0a000001 	beq	0x4fec
     4fe4:	e3e07000 	mvn	r7, #0
     4fe8:	ea00003e 	b	0x50e8
-    4fec:	e3a03801 	mov	r3, #65536	; 0x10000
+    4fec:	e3a03801 	mov	r3, #0x10000
     4ff0:	e3a02001 	mov	r2, #1
     4ff4:	e3a01010 	mov	r1, #16
     4ff8:	e28d0018 	add	r0, sp, #24
     4ffc:	eb000742 	bl	0x6d0c
     5000:	e3500001 	cmp	r0, #1
     5004:	0a00000b 	beq	0x5038
-    5008:	e59f10fc 	ldr	r1, [pc, #252]	; 0x510c
+    5008:	e59f10fc 	ldr	r1, =6000000
     500c:	e28d0018 	add	r0, sp, #24
     5010:	eb000593 	bl	0x6664
-    5014:	e3a03801 	mov	r3, #65536	; 0x10000
+    5014:	e3a03801 	mov	r3, #0x10000
     5018:	e3a02001 	mov	r2, #1
     501c:	e3a01010 	mov	r1, #16
     5020:	e28d0018 	add	r0, sp, #24
@@ -5057,16 +5108,16 @@ Disassembly of section .data:
     502c:	0a000001 	beq	0x5038
     5030:	e3e07000 	mvn	r7, #0
     5034:	ea00002b 	b	0x50e8
-    5038:	e28f10c0 	add	r1, pc, #192	; 0x5100
-    503c:	e3a00801 	mov	r0, #65536	; 0x10000
+    5038:	e28f10c0 	add	r1, pc, #192	; r1 = 0x5100 ("eGON.BT0")
+    503c:	e3a00801 	mov	r0, #0x10000
     5040:	eb00094e 	bl	0x7580
     5044:	e3500000 	cmp	r0, #0
     5048:	0a000001 	beq	0x5054
     504c:	e3e07000 	mvn	r7, #0
     5050:	ea000024 	b	0x50e8
-    5054:	e3a05801 	mov	r5, #65536	; 0x10000
+    5054:	e3a05801 	mov	r5, #0x10000
     5058:	e5954010 	ldr	r4, [r5, #16]
-    505c:	e3540902 	cmp	r4, #32768	; 0x8000
+    505c:	e3540902 	cmp	r4, #0x8000
     5060:	8a000003 	bhi	0x5074
     5064:	e1a00004 	mov	r0, r4
     5068:	e7df049f 	bfc	r0, #9, #23
@@ -5075,7 +5126,7 @@ Disassembly of section .data:
     5074:	e3e07000 	mvn	r7, #0
     5078:	ea00001a 	b	0x50e8
     507c:	e1a024a4 	lsr	r2, r4, #9
-    5080:	e3a03801 	mov	r3, #65536	; 0x10000
+    5080:	e3a03801 	mov	r3, #0x10000
     5084:	e3a01010 	mov	r1, #16
     5088:	e28d0018 	add	r0, sp, #24
     508c:	eb00071e 	bl	0x6d0c
@@ -5084,7 +5135,7 @@ Disassembly of section .data:
     5098:	e3e07000 	mvn	r7, #0
     509c:	ea000011 	b	0x50e8
     50a0:	e1a01004 	mov	r1, r4
-    50a4:	e3a00801 	mov	r0, #65536	; 0x10000
+    50a4:	e3a00801 	mov	r0, #0x10000
     50a8:	eb000946 	bl	0x75c8
     50ac:	e3500000 	cmp	r0, #0
     50b0:	1a00000a 	bne	0x50e0
@@ -7454,6 +7505,7 @@ Disassembly of section .data:
     7578:	3054422e
     757c:	00000000
 
+    f_7580:	; memcmp(r0, r1, 8)
     7580:	e92d40f0 	push	{r4, r5, r6, r7, lr}
     7584:	e1a02000 	mov	r2, r0
     7588:	e1a0c002 	mov	ip, r2
@@ -7629,26 +7681,37 @@ Disassembly of section .data:
     7820:	44c02001 	strbmi	r2, [r0], #1
     7824:	e12fff1e 	bx	lr
 
-    7828:	0200f04f
-    782c:	4613b500
-    7830:	46964694
-    7834:	bf223920
-    7838:	500ce8a0
-    783c:	500ce8a0
-    7840:	0120f1b1
-    7844:	aff7f4bf
-    7848:	bf280709
-    784c:	500ce8a0
-    7850:	c00cbf48
-    7854:	eb04f85d
-    7858:	bf280089
-    785c:	2b04f840
-    7860:	4770bf08
-    7864:	f820bf48
-    7868:	f0112b02
-    786c:	bf184f80
-    7870:	2b01f800
-    7874:	00004770
+    ; thumb code
+    .thumb
+    7828:	f04f 0200 	mov.w	r2, #0
+    782c:	b500      	push	{lr}
+    782e:	4613      	mov	r3, r2
+    7830:	4694      	mov	ip, r2
+    7832:	4696      	mov	lr, r2
+    7834:	3920      	subs	r1, #32
+    7836:	bf22      	ittt	cs
+    7838:	e8a0 500c 	stmiacs.w	r0!, {r2, r3, ip, lr}
+    783c:	e8a0 500c 	stmiacs.w	r0!, {r2, r3, ip, lr}
+    7840:	f1b1 0120 	subscs.w	r1, r1, #32
+    7844:	f4bf aff7 	bcs.w	0x7836
+    7848:	0709      	lsls	r1, r1, #28
+    784a:	bf28      	it	cs
+    784c:	e8a0 500c 	stmiacs.w	r0!, {r2, r3, ip, lr}
+    7850:	bf48      	it	mi
+    7852:	c00c      	stmiami	r0!, {r2, r3}
+    7854:	f85d eb04 	ldr.w	lr, [sp], #4
+    7858:	0089      	lsls	r1, r1, #2
+    785a:	bf28      	it	cs
+    785c:	f840 2b04 	strcs.w	r2, [r0], #4
+    7860:	bf08      	it	eq
+    7862:	4770      	bxeq	lr
+    7864:	bf48      	it	mi
+    7866:	f820 2b02 	strhmi.w	r2, [r0], #2
+    786a:	f011 4f80 	tst.w	r1, #1073741824	; 0x40000000
+    786e:	bf18      	it	ne
+    7870:	f800 2b01 	strbne.w	r2, [r0], #1
+    7874:	4770      	bx	lr
+    7876:	0000      	movs	r0, r0
 
     7878:	e1a0f000 	mov	pc, r0
 
